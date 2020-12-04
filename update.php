@@ -14,7 +14,7 @@ $config = require $confFile;
 foreach ([
              'cloudflare_email',
              'cloudflare_api_key',
-             'domain',
+             'is_token',
              'record_name',
              'ttl',
              'proxied',
@@ -26,27 +26,29 @@ foreach ([
     }
 }
 
-$api = new Cloudflare($config['cloudflare_email'], $config['cloudflare_api_key']);
+$api = new Cloudflare($config['cloudflare_email'], $config['cloudflare_api_key'], $config['is_token']);
 
-// default to first value of config array
-$domain = $config['domain'][0];
-$recordName = $config['record_name'][0];
-// set domain and record from request if value exists in config
-if (isset($_GET['domain']) || isset($_GET['record'])) {
-    $domain = isset($_GET['domain']) ? $_GET['domain'] : null;
-    $recordName = isset($_GET['record']) ? $_GET['record'] : null;
-    if (
-        !$domain ||
-        !$recordName ||
-        !in_array($domain, $config['domain']) ||
-        !in_array($recordName, $config['record_name'])
-    ) {
-        echo "Missing 'domain' or 'record_name' param, or domain or record_name is not in predefined list\n";
-        return 1;
-    }
+$headers = getallheaders();
+// map custom param support dyndns, no-ip,...
+if (empty($_GET['ip'])) $_GET['ip'] = $_GET['myip'];
+if (!isset($_GET['record']) && !empty($_GET['hostname'])) {
+    $_GET['record'] = $_GET['hostname'];
 }
 
-if (isset($config['auth_token']) && $config['auth_token']) {
+// set record from request if value exists in config
+$recordName = isset($_GET['record']) ? $_GET['record'] : null;
+if (
+    !$recordName ||
+    !in_array($recordName, array_keys($config['record_name']))
+) {
+    echo "Missing 'record_name' param, or record_name is not in predefined list\n";
+    return 1;
+}
+
+if (!empty($config['auth_token'])) {
+    if (empty($_GET['auth_token']) && !empty($headers['Authorization'])) {
+        $_GET['auth_token'] = $headers['Authorization'];
+    }
     // API mode. Use IP from request params.
     if (
         empty($_GET['auth_token']) ||
@@ -65,20 +67,20 @@ if (isset($config['auth_token']) && $config['auth_token']) {
 $verbose = !isset($argv[1]) || $argv[1] != '-s';
 
 try {
-    $zone = $api->getZone($domain);
+    $zone = $config['record_name'][$recordName];
     if (!$zone) {
-        echo "Domain $domain not found\n";
+        echo "Zone of $recordName not found\n";
         return 1;
     }
 
-    $records = $api->getZoneDnsRecords($zone['id'], ['name' => $recordName]);
+    $records = $api->getZoneDnsRecords($zone, ['name' => $recordName]);
     $record = $records && $records[0]['name'] == $recordName ? $records[0] : null;
 
     if (!$record) {
         if ($verbose) {
             echo "No existing record found. Creating a new one\n";
         }
-        $ret = $api->createDnsRecord($zone['id'], 'A', $recordName, $ip, [
+        $ret = $api->createDnsRecord($zone, 'A', $recordName, $ip, [
             'ttl' => $config['ttl'],
             'proxied' => $config['proxied'],
         ]);
@@ -91,7 +93,7 @@ try {
         if ($verbose) {
             echo "Updating record.\n";
         }
-        $ret = $api->updateDnsRecord($zone['id'], $record['id'], [
+        $ret = $api->updateDnsRecord($zone, $record['id'], [
             'type' => 'A',
             'name' => $recordName,
             'content' => $ip,
