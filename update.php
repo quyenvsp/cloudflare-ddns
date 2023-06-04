@@ -1,4 +1,3 @@
-#!/usr/bin/env php
 <?php
 
 require __DIR__ . '/Cloudflare.php';
@@ -76,23 +75,23 @@ try {
     $records = $api->getZoneDnsRecords($zone, ['name' => $recordName]);
     $record = $records && $records[0]['name'] == $recordName ? $records[0] : null;
 
+    # https://github.com/rrauenza/ez-ipupdate/blob/master/ez-ipupdate.c#LL1888C1-L2138C2
     if (!$record) {
-        if ($verbose) {
-            echo "No existing record found. Creating a new one\n";
-        }
+        // No existing record found. Creating a new one
         $ret = $api->createDnsRecord($zone, 'A', $recordName, $ip, [
             'ttl' => $config['ttl'],
             'proxied' => $config['proxied'],
         ]);
+        if ($verbose && !empty($ret['name'])) {
+            printf("\ngood ");
+        }
     } elseif (
         $record['type'] != 'A' ||
         $record['content'] != $ip ||
         $record['ttl'] != $config['ttl'] ||
         $record['proxied'] != $config['proxied']
     ) {
-        if ($verbose) {
-            echo "Updating record.\n";
-        }
+        // Updating record
         $ret = $api->updateDnsRecord($zone, $record['id'], [
             'type' => 'A',
             'name' => $recordName,
@@ -100,9 +99,13 @@ try {
             'ttl' => $config['ttl'],
             'proxied' => $config['proxied'],
         ]);
+        if ($verbose && !empty($ret['name'])) {
+            printf("\ngood ");
+        }
     } else {
         if ($verbose) {
-            echo "Record appears OK. No need to update.\n";
+            // Record appears OK. No need to update
+            printf("\nnochg");
         }
     }
     return 0;
